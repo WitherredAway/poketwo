@@ -968,6 +968,7 @@ class Pokemon(commands.Cog):
     @flags.add_flag("--ub", action="store_true")
     @flags.add_flag("--type", "--t", type=str)
     @flags.add_flag("--region", "--r", type=str)
+    @flags.add_flag("--learns", "--move", nargs="+", action="append")
     @checks.has_started()
     @flags.command(aliases=("d", "dex"))
     async def pokedex(self, ctx, **flags):
@@ -1013,6 +1014,15 @@ class Pokemon(commands.Cog):
                     else:
                         del pokedex[str(i)]
 
+            if flags["learns"]:
+                # IDs of the moves passed in through the flag
+                move_ids = [
+                    m.id
+                    if (m := self.bot.data.move_by_name(" ".join(x))) is not None
+                    else None  # This is to show no pokemon if move name is invalid
+                    for x in flags["learns"]
+                ]
+
             def include(key):
                 if flags["legendary"] and key not in self.bot.data.list_legendary:
                     return False
@@ -1024,6 +1034,18 @@ class Pokemon(commands.Cog):
                     return False
                 if flags["region"] and key not in self.bot.data.list_region(flags["region"]):
                     return False
+                if flags["learns"]:
+                    # IDs of the moves that the pokemon can learn
+                    moveset_ids = [
+                        pm.move_id
+                        for pm in self.bot.data.species_by_number(key).moves
+                    ]
+                    # Return false if flag moves are not in pokemon moveset
+                    if not all(
+                        move_id in moveset_ids
+                        for move_id in move_ids
+                    ):
+                        return False
 
                 return True
 
