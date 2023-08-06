@@ -11,7 +11,7 @@ from discord.ext import commands, tasks
 
 import data.constants
 from data import models
-from helpers import checks, constants, converters, pagination
+from helpers import checks, constants, converters, pagination, flags
 
 
 def in_battle(bool=True):
@@ -677,6 +677,119 @@ class Battling(commands.Cog):
             return embed
 
         pages = pagination.ContinuablePages(pagination.FunctionPageSource(math.ceil(len(species.moves) / 20), get_page))
+        self.bot.menus[ctx.author.id] = pages
+        await pages.start(ctx)
+
+    # Nickname
+    @flags.add_flag("move_name", nargs="+")
+
+    # Filter
+    @flags.add_flag("--alolan", action="store_true")
+    @flags.add_flag("--galarian", action="store_true")
+    @flags.add_flag("--hisuian", action="store_true")
+    @flags.add_flag("--mythical", action="store_true")
+    @flags.add_flag("--legendary", action="store_true")
+    @flags.add_flag("--ub", action="store_true")
+    @flags.add_flag("--event", action="store_true")
+    @flags.add_flag("--mega", action="store_true")
+    @flags.add_flag("--name", "--n", nargs="+", action="append")
+    @flags.add_flag("--type", "--t", type=str)
+    @flags.add_flag("--region", "--r", type=str)
+    @flags.add_flag("--learns", nargs="+", action="append")
+    @checks.has_started()
+    @flags.command(aliases=("ls",))
+    async def learnset(self, ctx, **flags):
+        """View all pokemon that learn a certain move."""
+
+        move_name = " ".join(flags["move_name"])
+
+        move = self.bot.data.move_by_name(move_name)
+
+        if move is None:
+            return await ctx.send("Couldn't find a move with that name!")
+
+        forms = {
+            form: [s for s in getattr(self.bot.data, f"list_{form}")]
+            for form in ("alolan", "galarian", "hisuian", "mega", "event")
+            if flags[form]
+        }
+
+        rarities = [
+            s
+            for rarity in ("mythical", "legendary", "ub")
+            for s in getattr(self.bot.data, f"list_{rarity}")
+            if flags[rarity]
+        ]
+
+        def include(key):
+            for form, species in forms.items():
+                if key not in species:
+                    return False
+
+            # This allows for all 3 rarity flags to be used simultaneously
+            if rarities and key not in rarities:
+                return False
+
+            if flags["event"] and key not in self.bot.data.list_event:
+                return False
+
+            if flags["mega"] and key not in self.bot.data.list_mega:
+                return False
+
+            # TODO Test all the flags and combinations
+            if flags["name"] and key not in [i for x in flags["name"] for i in self.bot.data.find_all_matches(" ".join(x))]:
+                return False
+
+            if flags["type"] and key not in self.bot.data.list_type(flags["type"]):
+                return False
+
+            if flags["region"] and key not in self.bot.data.list_region(flags["region"]):
+                return False
+
+            if flags["learns"] and key not in [i for x in flags["learns"] for i in self.bot.data.list_move(" ".join(x))]:
+                return False
+
+            return True
+
+        # Get list of (Species, PokemonMove) tuples
+        # of each species that can learn this move
+        # and matches the filters.
+        pokemon = [
+            (
+                p := self.bot.data.species_by_number(sid),
+                discord.utils.get(p.moves, move_id=move.id)
+            )
+            for sid in self.bot.data.list_move(move.name)
+            if include(sid)
+        ]
+        total_count = len(pokemon)
+
+        do_emojis = ctx.guild is None or ctx.channel.permissions_for(ctx.guild.me).external_emojis
+
+        async def get_page(source, menu, pidx):
+            pgstart = pidx * 20
+            pgend = min(pgstart + 20, len(pokemon))
+
+            # Send embed
+
+            embed = self.bot.Embed(title=f"{move.name} — Learnset")
+
+            embed.set_footer(text=f"Showing {pgstart + 1}–{pgend} out of {total_count}.")
+
+            for species, pokemon_move in pokemon[pgstart:pgend]:
+                if do_emojis:
+                    emoji = self.bot.sprites.get(species) + " "
+                else:
+                    emoji = ""
+
+                embed.add_field(name=f"{emoji}{species.name} #{species.id}", value=pokemon_move.method.text)
+
+            for i in range(-pgend % 3):
+                embed.add_field(name="‎", value="‎")
+
+            return embed
+
+        pages = pagination.ContinuablePages(pagination.FunctionPageSource(math.ceil(total_count / 20), get_page))
         self.bot.menus[ctx.author.id] = pages
         await pages.start(ctx)
 
