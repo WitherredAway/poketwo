@@ -2193,6 +2193,7 @@ other = {
     "flag_pansexual": 1110385593789186169,
     "armor_malicious": 1112741579019522189,
     "armor_auspicious": 1112741581527724103,
+    # TODO: TYPE and MOVE CLASS emojis
 }
 
 enable_emojis_for = (716390085896962058, 717112814535442432, 848517317469405214)

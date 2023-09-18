@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import math
 import pickle
@@ -12,6 +14,9 @@ from discord.ext import commands, tasks
 import data.constants
 from data import models
 from helpers import checks, constants, converters, pagination
+
+if typing.TYPE_CHECKING:
+    from bot import ClusterBot
 
 
 def in_battle(bool=True):
@@ -103,7 +108,9 @@ class Trainer:
 
         uid, action = await self.bot.wait_for("move_decide", check=lambda u, a: u == self.user.id)
 
-        await self.user.send(f"You selected **{action['text']}**.\n\n**Back to battle:** {message.jump_url}")
+        view = discord.ui.View(timeout=0)
+        view.add_item(discord.ui.Button(label="Back to battle", url=message.jump_url))
+        await self.user.send(f"You selected **{action['text']}**.", view=view)
 
         if action["type"] == "move":
             action["value"] = self.bot.data.move_by_number(action["value"])
@@ -393,11 +400,102 @@ class BattleManager:
         return battle
 
 
+ACTION_TIMEOUT = 35
+MOVES_ROW = 0
+SWITCH_ROW = 1
+FLEE_AND_PASS_ROW = 2
+
+
+class ActionSelect(discord.ui.Select):
+    async def callback(self, interaction):
+        await interaction.response.defer()
+        self.view.action = self.view.actions[self.values[0]]
+        self.view.stop()
+
+
+class ActionButton(discord.ui.Button):
+    def __init__(self, action: dict, *args, **kwargs):
+        self.action = action
+        super().__init__(*args, **kwargs)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        self.view.action = self.action
+        self.view.stop()
+
+
+class ActionView(discord.ui.View):
+    def __init__(
+        self,
+        bot: ClusterBot,
+        user_id: int,
+        actions: dict
+    ):
+        self.bot = bot
+        self.user_id = user_id
+        self.actions = actions
+        self.action = None
+        super().__init__(timeout=ACTION_TIMEOUT)
+
+        self.fill_items()
+
+    def fill_items(self):
+        self.clear_items()
+
+        move_options = []
+        switch_options = []
+        for emoji, action in self.actions.items():
+            match action["type"]:
+                case "move":
+                    move = self.bot.data.move_by_number(action["value"])
+                    move_options.append(
+                        discord.SelectOption(
+                            emoji=self.bot.sprites.get(f"type_{move.type.lower()}"),  # TODO: final decision
+                            label=move.name,
+                            description=move.damage_class,
+                            value=emoji,
+                        )
+                    )
+                case "switch":
+                    trainer = self.bot.battles.get_trainer(discord.Object(self.user_id))
+                    pokemon_idx = action["value"]
+                    pokemon = trainer.pokemon[pokemon_idx]
+                    switch_options.append(
+                        discord.SelectOption(
+                            emoji=self.bot.sprites.get(pokemon.species.dex_number, shiny=pokemon.shiny),
+                            label=f"{pokemon:p}",
+                            description="/".join(pokemon.species.types),
+                            value=emoji,
+                        )
+                    )
+                case "flee" | "pass":
+                    self.add_item(
+                        ActionButton(
+                            action,
+                            label=action["type"].capitalize(),
+                            row=FLEE_AND_PASS_ROW,
+                        )
+                    )
+
+        self.add_item(ActionSelect(options=move_options, placeholder="Use a move", row=MOVES_ROW))
+        self.add_item(ActionSelect(options=switch_options, placeholder="Switch Pokémon", row=SWITCH_ROW))
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id not in {
+            self.bot.owner_id,
+            self.user_id,
+            *self.bot.owner_ids,
+        }:
+            await interaction.response.send_message("You can't use this!", ephemeral=True)
+            return False
+        return True
+
+
 class Battling(commands.Cog):
     """For battling."""
 
     def __init__(self, bot):
-        self.bot = bot
+        self.bot: ClusterBot = bot
 
         if not hasattr(self.bot, "battles"):
             self.bot.battles = BattleManager()
@@ -452,30 +550,21 @@ class Battling(commands.Cog):
         embed.description = "\n".join(
             f"{k} **{v['text']}** • `@Pokétwo battle move {v['command']}`" for k, v in actions.items()
         )
-        msg = await self.bot.send_dm(user_id, embed=embed)
 
-        async def add_reactions():
-            for k in actions:
-                await msg.add_reaction(k)
+        view = ActionView(self.bot, user_id, actions)
+        view.message = await self.bot.send_dm(user_id, embed=embed, view=view)
 
-        self.bot.loop.create_task(add_reactions())
-
-        def check(payload):
-            return payload.message_id == msg.id and payload.user_id == user_id and payload.emoji.name in actions
-
-        async def listen_for_reactions():
-            try:
-                payload = await self.bot.wait_for("raw_reaction_add", timeout=35, check=check)
-                action = actions[payload.emoji.name]
+        async def wait_view():
+            await view.wait()
+            action = view.action
+            if action is not None:
                 self.bot.dispatch("battle_move", user_id, action["command"])
-            except asyncio.TimeoutError:
-                pass
 
-        self.bot.loop.create_task(listen_for_reactions())
+        self.bot.loop.create_task(wait_view())
 
         try:
             while True:
-                _, move_name = await self.bot.wait_for("battle_move", timeout=35, check=lambda u, m: u == user_id)
+                _, move_name = await self.bot.wait_for("battle_move", timeout=ACTION_TIMEOUT, check=lambda u, m: u == user_id)
                 try:
                     action = next(x for x in actions.values() if x["command"].lower() == move_name.lower())
                 except StopIteration:
