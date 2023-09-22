@@ -477,8 +477,27 @@ class ActionView(discord.ui.View):
                         )
                     )
 
-        self.add_item(ActionSelect(options=move_options, placeholder="Use a move", row=MOVES_ROW))
-        self.add_item(ActionSelect(options=switch_options, placeholder="Switch Pokémon", row=SWITCH_ROW))
+        none_option = discord.SelectOption(
+            label="None",
+            value="none",
+        )
+
+        self.add_item(
+            ActionSelect(
+                options=move_options or [none_option],
+                placeholder="Use a move",
+                row=MOVES_ROW,
+                disabled=len(move_options) == 0
+            )
+        )
+        self.add_item(
+            ActionSelect(
+                options=switch_options or [none_option],
+                placeholder="Switch Pokémon",
+                row=SWITCH_ROW,
+                disabled=len(switch_options) == 0
+            )
+        )
 
     async def interaction_check(self, interaction):
         if interaction.user.id not in {
