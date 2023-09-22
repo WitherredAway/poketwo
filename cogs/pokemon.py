@@ -1047,7 +1047,9 @@ class Pokemon(commands.Cog):
                     return False
                 if flags["region"] and key not in self.bot.data.list_region(flags["region"]):
                     return False
-                if flags["learns"] and key not in [i for x in flags["learns"] for i in self.bot.data.list_move(" ".join(x))]:
+                if flags["learns"] and key not in [
+                    i for x in flags["learns"] for i in self.bot.data.list_move(" ".join(x))
+                ]:
                     return False
 
                 return True
@@ -1067,7 +1069,9 @@ class Pokemon(commands.Cog):
 
                 # Send embed
 
-                embed = self.bot.Embed(title=f"Your pokédex", description=f"You've caught {num} out of {total_count} pokémon!")
+                embed = self.bot.Embed(
+                    title=f"Your pokédex", description=f"You've caught {num} out of {total_count} pokémon!"
+                )
 
                 embed.set_footer(text=f"Showing {pgstart + 1}–{pgend} out of {len(pokedex)}.")
 

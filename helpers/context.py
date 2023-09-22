@@ -137,7 +137,7 @@ class RequestView(discord.ui.View):
         requestee: typing.Union[discord.User, discord.Member],
         *,
         timeout: int,
-        delete_after: bool
+        delete_after: bool,
     ) -> None:
         super().__init__(timeout=timeout)
         self.result = None
@@ -220,7 +220,7 @@ class PoketwoContext(commands.Context):
         file: Optional[discord.File] = None,
         embed: Optional[discord.Embed] = None,
         timeout: Optional[int] = 40,
-        delete_after: Optional[bool] = False
+        delete_after: Optional[bool] = False,
     ):
         view = RequestView(self, requestee, timeout=timeout, delete_after=delete_after)
         view.message = await self.send(
@@ -240,7 +240,7 @@ class PoketwoContext(commands.Context):
         timeout=40,
         options: typing.List[discord.SelectOption],
         delete_after=False,
-        cls=SelectView
+        cls=SelectView,
     ):
         view = cls(self, options=options, timeout=timeout, delete_after=delete_after)
         view.message = await self.send(

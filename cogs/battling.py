@@ -20,12 +20,7 @@ if typing.TYPE_CHECKING:
     from bot import ClusterBot
 
 
-def format_pokemon(
-    pokemon: Pokemon,
-    *,
-    do_sprite: typing.Optional[bool] = True,
-    do_idx: typing.Optional[bool] = True
-):
+def format_pokemon(pokemon: Pokemon, *, do_sprite: typing.Optional[bool] = True, do_idx: typing.Optional[bool] = True):
     spec = "Lp"
     if do_sprite:
         spec += "i"
@@ -219,7 +214,7 @@ class Battle:
 
         embed = self.bot.Embed(
             title=f"Battle between {self.trainers[0].user.display_name} and {self.trainers[1].user.display_name}.",
-            description="\n".join(description)
+            description="\n".join(description),
         )
         embed.set_footer(text="The next round will begin in 5 seconds.")
 
@@ -444,12 +439,7 @@ class ActionButton(discord.ui.Button):
 
 
 class ActionView(discord.ui.View):
-    def __init__(
-        self,
-        bot: ClusterBot,
-        trainer: int,
-        actions: dict
-    ):
+    def __init__(self, bot: ClusterBot, trainer: int, actions: dict):
         self.bot = bot
         self.trainer = trainer
         self.actions = actions
@@ -510,7 +500,7 @@ class ActionView(discord.ui.View):
                 options=move_options or [none_option],
                 placeholder="Use a move",
                 row=MOVES_ROW,
-                disabled=len(move_options) == 0
+                disabled=len(move_options) == 0,
             )
         )
         self.add_item(
@@ -518,7 +508,7 @@ class ActionView(discord.ui.View):
                 options=switch_options or [none_option],
                 placeholder="Switch Pokémon",
                 row=SWITCH_ROW,
-                disabled=len(switch_options) == 0
+                disabled=len(switch_options) == 0,
             )
         )
 
@@ -604,18 +594,12 @@ class Battling(commands.Cog):
                     available_moves.append(f"{sprite}{move.name}")
 
                 case "switch":
-                    pokemon = trainer.pokemon[a['value']]
+                    pokemon = trainer.pokemon[a["value"]]
                     available_pokemon.append(f"{format_pokemon(pokemon)}")
 
-        embed.add_field(
-            name="Available Moves",
-            value="\n".join(available_moves) or "None"
-        )
+        embed.add_field(name="Available Moves", value="\n".join(available_moves) or "None")
 
-        embed.add_field(
-            name="Available Pokémon",
-            value="\n".join(available_pokemon) or "None"
-        )
+        embed.add_field(name="Available Pokémon", value="\n".join(available_pokemon) or "None")
 
         embed.set_footer(text=f"You can also use `@Pokétwo battle move <move-name> | switch <idx> | flee | pass`")
 
@@ -632,7 +616,9 @@ class Battling(commands.Cog):
 
         try:
             while True:
-                _, move_name = await self.bot.wait_for("battle_move", timeout=ACTION_TIMEOUT, check=lambda u, m: u == user_id)
+                _, move_name = await self.bot.wait_for(
+                    "battle_move", timeout=ACTION_TIMEOUT, check=lambda u, m: u == user_id
+                )
                 try:
                     action = next(x for x in actions.values() if x["command"].lower() == move_name.lower())
                 except StopIteration:
@@ -670,7 +656,9 @@ class Battling(commands.Cog):
 
         # Challenge to battle
 
-        result = await ctx.request(user, f"Challenging {user.mention} to a battle. Click the accept button to accept!", timeout=30)
+        result = await ctx.request(
+            user, f"Challenging {user.mention} to a battle. Click the accept button to accept!", timeout=30
+        )
         if result is None:
             return await ctx.send("The request to trade has timed out.")
         if result is False:
@@ -915,7 +903,9 @@ class Battling(commands.Cog):
             if flags["mega"] and key not in self.bot.data.list_mega:
                 return False
 
-            if flags["name"] and key not in [i for x in flags["name"] for i in self.bot.data.find_all_matches(" ".join(x))]:
+            if flags["name"] and key not in [
+                i for x in flags["name"] for i in self.bot.data.find_all_matches(" ".join(x))
+            ]:
                 return False
 
             if flags["type"] and key not in [i for x in flags["type"] for i in self.bot.data.list_type(x)]:
@@ -924,7 +914,9 @@ class Battling(commands.Cog):
             if flags["region"] and key not in [i for x in flags["region"] for i in self.bot.data.list_region(x)]:
                 return False
 
-            if flags["learns"] and key not in [i for x in flags["learns"] for i in self.bot.data.list_move(" ".join(x))]:
+            if flags["learns"] and key not in [
+                i for x in flags["learns"] for i in self.bot.data.list_move(" ".join(x))
+            ]:
                 return False
 
             return True
@@ -958,7 +950,10 @@ class Battling(commands.Cog):
                 except KeyError:
                     emoji = ""
 
-                embed.add_field(name=f"{emoji}{species.name} #{species.id}", value=" / ".join(pm.method.text for pm in pokemon_moves))
+                embed.add_field(
+                    name=f"{emoji}{species.name} #{species.id}",
+                    value=" / ".join(pm.method.text for pm in pokemon_moves),
+                )
 
             for i in range(-pgend % 3):
                 embed.add_field(name="‎", value="‎")

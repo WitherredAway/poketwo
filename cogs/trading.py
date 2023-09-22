@@ -341,7 +341,9 @@ class Trading(commands.Cog):
         if member.suspended or datetime.utcnow() < member.suspended_until:
             return await ctx.send(f"**{user}** is suspended from the bot!")
 
-        result = await ctx.request(user, f"Requesting a trade with {user.mention}. Click the accept button to accept!", timeout=30)
+        result = await ctx.request(
+            user, f"Requesting a trade with {user.mention}. Click the accept button to accept!", timeout=30
+        )
         if result is None:
             return await ctx.send("The request to trade has timed out.")
         if result is False:
