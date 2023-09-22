@@ -10,6 +10,7 @@ from urllib.parse import urlencode, urljoin
 
 import discord
 from discord.ext import commands, tasks
+from cogs.mongo import Pokemon
 
 import data.constants
 from data import models
@@ -17,6 +18,23 @@ from helpers import checks, constants, converters, pagination
 
 if typing.TYPE_CHECKING:
     from bot import ClusterBot
+
+
+def format_pokemon(
+    pokemon: Pokemon,
+    *,
+    do_sprite: typing.Optional[bool] = True,
+    do_idx: typing.Optional[bool] = True
+):
+    spec = "Lp"
+    if do_sprite:
+        spec += "i"
+
+    fmt = f"{pokemon:{spec}}"
+    if do_idx:
+        fmt += f" ({pokemon.idx})"
+
+    return fmt
 
 
 def in_battle(bool=True):
@@ -77,7 +95,7 @@ class Trainer:
                 actions[constants.LETTER_REACTIONS[idx]] = {
                     "type": "switch",
                     "value": idx,
-                    "text": f"Switch to {pokemon.iv_percentage:.2%} {pokemon.species}",
+                    "text": f"Switch to {format_pokemon(pokemon)}",
                     "command": f"switch {idx + 1}",
                 }
 
@@ -118,6 +136,16 @@ class Trainer:
         return action
 
 
+def add_selection_field(embed: ClusterBot.Embed, trainer: Trainer, pokemon: typing.List[Pokemon]):
+    if len(pokemon) > 0:
+        embed.add_field(
+            name=f"{trainer.user}'s Party",
+            value="\n".join(f"{format_pokemon(x)}" for x in pokemon),
+        )
+    else:
+        embed.add_field(name=f"{trainer.user}'s Party", value="None")
+
+
 class Battle:
     def __init__(self, users: typing.List[discord.Member], ctx, manager):
         self.trainers = [Trainer(x, ctx.bot) for x in users]
@@ -136,13 +164,7 @@ class Battle:
         )
 
         for trainer in self.trainers:
-            if len(trainer.pokemon) > 0:
-                embed.add_field(
-                    name=f"{trainer.user}'s Party",
-                    value="\n".join(f"{x.iv_percentage:.2%} IV {x.species} ({x.idx})" for x in trainer.pokemon),
-                )
-            else:
-                embed.add_field(name=f"{trainer.user}'s Party", value="None")
+            add_selection_field(embed, trainer, trainer.pokemon)
 
         embed.set_footer(text=f"Use `{ctx.clean_prefix}battle add <pokemon>` to add a pokémon to the party!")
 
@@ -152,10 +174,7 @@ class Battle:
         embed = self.bot.Embed(title="💥 Ready to battle!", description="The battle will begin in 5 seconds.")
 
         for trainer in self.trainers:
-            embed.add_field(
-                name=f"{trainer.user}'s Party",
-                value="\n".join(f"{x.iv_percentage:.2%} IV {x.species} ({x.idx})" for x in trainer.pokemon),
-            )
+            add_selection_field(embed, trainer, trainer.pokemon)
 
         await self.channel.send(embed=embed)
 
@@ -346,9 +365,9 @@ class Battle:
             embed.add_field(
                 name=trainer.user.display_name,
                 value="\n".join(
-                    f"**{x.species}** • {x.hp}/{x.max_hp} HP"
+                    f"**{format_pokemon(x, do_idx=False)}** • {x.hp}/{x.max_hp} HP"
                     if trainer.selected == x
-                    else f"{x.species} • {x.hp}/{x.max_hp} HP"
+                    else f"{format_pokemon(x, do_idx=False)} • {x.hp}/{x.max_hp} HP"
                     for x in trainer.pokemon
                 ),
             )
@@ -428,11 +447,11 @@ class ActionView(discord.ui.View):
     def __init__(
         self,
         bot: ClusterBot,
-        user_id: int,
+        trainer: int,
         actions: dict
     ):
         self.bot = bot
-        self.user_id = user_id
+        self.trainer = trainer
         self.actions = actions
         self.action = None
         super().__init__(timeout=ACTION_TIMEOUT)
@@ -448,22 +467,26 @@ class ActionView(discord.ui.View):
             match action["type"]:
                 case "move":
                     move = self.bot.data.move_by_number(action["value"])
+                    try:
+                        sprite = self.bot.sprites[f"type_{move.type.lower()}"] or None
+                    except KeyError:
+                        sprite = None
+
                     move_options.append(
                         discord.SelectOption(
-                            emoji=self.bot.sprites.get(f"type_{move.type.lower()}"),  # TODO: final decision
+                            emoji=sprite,
                             label=move.name,
                             description=move.damage_class,
                             value=emoji,
                         )
                     )
                 case "switch":
-                    trainer = self.bot.battles.get_trainer(discord.Object(self.user_id))
                     pokemon_idx = action["value"]
-                    pokemon = trainer.pokemon[pokemon_idx]
+                    pokemon = self.trainer.pokemon[pokemon_idx]
                     switch_options.append(
                         discord.SelectOption(
-                            emoji=self.bot.sprites.get(pokemon.species.dex_number, shiny=pokemon.shiny),
-                            label=f"{pokemon:p}",
+                            emoji=self.bot.sprites.get(pokemon.species.dex_number, shiny=pokemon.shiny) or None,
+                            label=format_pokemon(pokemon, do_sprite=False),
                             description="/".join(pokemon.species.types),
                             value=emoji,
                         )
@@ -502,7 +525,7 @@ class ActionView(discord.ui.View):
     async def interaction_check(self, interaction):
         if interaction.user.id not in {
             self.bot.owner_id,
-            self.user_id,
+            self.trainer.user.id,
             *self.bot.owner_ids,
         }:
             await interaction.response.send_message("You can't use this!", ephemeral=True)
@@ -562,15 +585,41 @@ class Battling(commands.Cog):
 
     @commands.Cog.listener()
     async def on_move_request(self, cluster_idx, user_id, species_id, actions):
+        trainer = self.bot.battles.get_trainer(discord.Object(user_id))
         species = self.bot.data.species_by_number(species_id)
 
         embed = self.bot.Embed(title=f"What should {species} do?")
 
-        embed.description = "\n".join(
-            f"{k} **{v['text']}** • `@Pokétwo battle move {v['command']}`" for k, v in actions.items()
+        available_moves = []
+        available_pokemon = []
+
+        for e, a in actions.items():
+            match a["type"]:
+                case "move":
+                    move = self.bot.data.move_by_number(a["value"])
+                    try:
+                        sprite = f'{self.bot.sprites[f"type_{move.type.lower()}"]} '
+                    except KeyError:
+                        sprite = ""
+                    available_moves.append(f"{sprite}{move.name}")
+
+                case "switch":
+                    pokemon = trainer.pokemon[a['value']]
+                    available_pokemon.append(f"{format_pokemon(pokemon)}")
+
+        embed.add_field(
+            name="Available Moves",
+            value="\n".join(available_moves) or "None"
         )
 
-        view = ActionView(self.bot, user_id, actions)
+        embed.add_field(
+            name="Available Pokémon",
+            value="\n".join(available_pokemon) or "None"
+        )
+
+        embed.set_footer(text=f"You can also use `@Pokétwo battle move <move-name> | switch <idx> | flee | pass`")
+
+        view = ActionView(self.bot, trainer, actions)
         view.message = await self.bot.send_dm(user_id, embed=embed, view=view)
 
         async def wait_view():
