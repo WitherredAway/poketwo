@@ -449,8 +449,6 @@ class ActionView(discord.ui.View):
         self.fill_items()
 
     def fill_items(self):
-        self.clear_items()
-
         move_options = []
         switch_options = []
         for emoji, action in self.actions.items():
